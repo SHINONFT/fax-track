@@ -1,0 +1,81 @@
+name: Save Traffic Data
+
+on:
+  schedule:
+    # 毎日 JST 9:00（UTC 0:00）に実行
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 手動実行も可能
+
+permissions:
+  contents: write
+
+jobs:
+  save:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch traffic data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+
+          # ページビュー取得
+          VIEWS=$(gh api repos/${{ github.repository }}/traffic/views)
+
+          # リファラー取得
+          REFS=$(gh api repos/${{ github.repository }}/traffic/popular/referrers)
+
+          # パス別ビュー
+          PATHS=$(gh api repos/${{ github.repository }}/traffic/popular/paths)
+
+          # JSON を保存
+          mkdir -p traffic-log
+          echo "$VIEWS" > traffic-log/views_${DATE}.json
+          echo "$REFS"  > traffic-log/refs_${DATE}.json
+          echo "$PATHS" > traffic-log/paths_${DATE}.json
+
+      - name: Update cumulative log
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          python3 - <<'PYEOF'
+          import json, glob, os
+          from datetime import datetime, timezone
+
+          # 全viewsファイルをマージして重複排除
+          all_days = {}
+          for f in sorted(glob.glob("traffic-log/views_*.json")):
+              try:
+                  data = json.load(open(f))
+                  for v in data.get("views", []):
+                      ts = v["timestamp"][:10]  # 日付だけ
+                      if ts not in all_days or all_days[ts]["count"] < v["count"]:
+                          all_days[ts] = {"count": v["count"], "uniques": v["uniques"]}
+              except Exception:
+                  pass
+
+          # 累積サマリー
+          total_views   = sum(v["count"]   for v in all_days.values())
+          total_uniques = sum(v["uniques"] for v in all_days.values())
+
+          summary = {
+              "updated_at": datetime.now(timezone.utc).isoformat(),
+              "total_views": total_views,
+              "total_uniques": total_uniques,
+              "by_date": {k: v for k, v in sorted(all_days.items())}
+          }
+
+          with open("traffic-log/summary.json", "w") as f:
+              json.dump(summary, f, indent=2, ensure_ascii=False)
+
+          print(f"Total views: {total_views}, Uniques: {total_uniques}")
+          PYEOF
+
+      - name: Commit traffic data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add traffic-log/
+          git diff --cached --quiet || git commit -m "chore: save traffic data $(date -u +%Y-%m-%d)"
+          git push

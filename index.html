@@ -4,45 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>資料を開いています...</title>
-
-  <!-- ================================================
-    Google Analytics 4
-    GA_MEASUREMENT_ID を実際のIDに置き換えてください
-    例: G-ABC1234567
-  ================================================ -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){ dataLayer.push(arguments); }
-    gtag('js', new Date());
-    gtag('config', 'GA_MEASUREMENT_ID', {
-      // UTMパラメータ（GA4ダッシュボードで参照元として表示）
-      campaign_source:  'fax',
-      campaign_medium:  'print',
-      campaign_name:    'kasuhara_care_2026'
-    });
-
-    // ── 転送先 ──────────────────────────────────────
-    var DESTINATION = 'https://drive.google.com/file/d/1XqWlM22L6jy3fP1RFGj6BW-JszB6yBvL/view?usp=drive_link';
-
-    // カスタムイベント送信 → 完了後に転送
-    gtag('event', 'qr_scan', {
-      event_category: 'fax_campaign',
-      event_label:    'kasuhara_care_fax',
-      // GA4 が送信完了したら転送する
-      event_callback: function() {
-        window.location.href = DESTINATION;
-      },
-      // GA4 が遅い場合も最大1秒後に転送
-      event_timeout: 1000
-    });
-
-    // フォールバック: スクリプトエラーでも必ず転送
-    setTimeout(function() {
-      window.location.href = DESTINATION;
-    }, 1500);
-  </script>
-
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -83,6 +44,11 @@
       font-size: 12px;
     }
   </style>
+  <script>
+    var DEST = 'https://drive.google.com/file/d/1XqWlM22L6jy3fP1RFGj6BW-JszB6yBvL/view?usp=drive_link';
+    // 即座にリダイレクト（ブラウザ履歴に残らないよう replace）
+    window.location.replace(DEST);
+  </script>
 </head>
 <body>
   <div class="card">

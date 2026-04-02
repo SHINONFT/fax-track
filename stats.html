@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QRコード スキャン集計</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Hiragino Sans', Meiryo, sans-serif; background: #f8fafc; padding: 24px; }
+    h1 { font-size: 22px; color: #0f172a; margin-bottom: 6px; }
+    .sub { color: #64748b; font-size: 14px; margin-bottom: 28px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 8px rgba(0,0,0,.08); }
+    .card .num { font-size: 36px; font-weight: 700; color: #1d4ed8; }
+    .card .label { font-size: 13px; color: #64748b; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; background: white;
+            border-radius: 12px; overflow: hidden; box-shadow: 0 1px 8px rgba(0,0,0,.08); }
+    th { background: #f1f5f9; padding: 10px 16px; text-align: left; font-size: 13px; color: #475569; }
+    td { padding: 10px 16px; font-size: 14px; border-top: 1px solid #f1f5f9; color: #0f172a; }
+    .bar-wrap { background: #e2e8f0; border-radius: 4px; height: 8px; margin-top: 4px; }
+    .bar { background: #3b82f6; border-radius: 4px; height: 8px; }
+    .updated { font-size: 12px; color: #94a3b8; margin-top: 20px; text-align: right; }
+    .no-data { text-align: center; padding: 40px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <h1>📊 FAXキャンペーン QRコード スキャン集計</h1>
+  <p class="sub">カスハラ対策 介護事業所向けFAX — <span id="qr-url"></span></p>
+
+  <div class="grid">
+    <div class="card">
+      <div class="num" id="total-views">—</div>
+      <div class="label">総スキャン数</div>
+    </div>
+    <div class="card">
+      <div class="num" id="total-uniques">—</div>
+      <div class="label">ユニーク訪問者</div>
+    </div>
+    <div class="card">
+      <div class="num" id="last-count">—</div>
+      <div class="label">昨日のスキャン</div>
+    </div>
+  </div>
+
+  <table id="daily-table">
+    <thead>
+      <tr>
+        <th>日付</th>
+        <th>スキャン数</th>
+        <th>ユニーク</th>
+        <th style="width:200px">グラフ</th>
+      </tr>
+    </thead>
+    <tbody id="daily-body">
+      <tr><td colspan="4" class="no-data">データ読み込み中...</td></tr>
+    </tbody>
+  </table>
+
+  <p class="updated" id="updated-at"></p>
+
+  <script>
+    document.getElementById('qr-url').textContent =
+      window.location.origin + window.location.pathname.replace('stats.html', '');
+
+    fetch('traffic-log/summary.json?_=' + Date.now())
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('total-views').textContent   = data.total_views.toLocaleString();
+        document.getElementById('total-uniques').textContent = data.total_uniques.toLocaleString();
+        document.getElementById('updated-at').textContent    =
+          '最終更新: ' + new Date(data.updated_at).toLocaleString('ja-JP');
+
+        const days = Object.entries(data.by_date).reverse();  // 新しい日付順
+        const maxCount = Math.max(...days.map(([,v]) => v.count), 1);
+
+        // 昨日
+        if (days.length > 0) {
+          document.getElementById('last-count').textContent = days[0][1].count.toLocaleString();
+        }
+
+        const tbody = document.getElementById('daily-body');
+        if (days.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="no-data">まだデータがありません（FAX送信後に蓄積されます）</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = days.map(([date, v]) => `
+          <tr>
+            <td>${date}</td>
+            <td><strong>${v.count}</strong></td>
+            <td>${v.uniques}</td>
+            <td>
+              <div class="bar-wrap">
+                <div class="bar" style="width:${Math.round(v.count/maxCount*100)}%"></div>
+              </div>
+            </td>
+          </tr>
+        `).join('');
+      })
+      .catch(() => {
+        document.getElementById('daily-body').innerHTML =
+          '<tr><td colspan="4" class="no-data">データがまだありません。<br>FAX送信開始後、翌日 9:00 に初回集計されます。</td></tr>';
+        document.getElementById('total-views').textContent   = '0';
+        document.getElementById('total-uniques').textContent = '0';
+        document.getElementById('last-count').textContent    = '0';
+      });
+  </script>
+</body>
+</html>
