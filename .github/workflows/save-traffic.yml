@@ -4,7 +4,7 @@ on:
   schedule:
     # 毎日 JST 9:00（UTC 0:00）に実行
     - cron: '0 0 * * *'
-  workflow_dispatch:  # 手動実行も可能
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,67 +15,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch traffic data
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fetch counter from CountAPI and save
         run: |
           DATE=$(date -u +%Y-%m-%d)
-
-          # ページビュー取得
-          VIEWS=$(gh api repos/${{ github.repository }}/traffic/views)
-
-          # リファラー取得
-          REFS=$(gh api repos/${{ github.repository }}/traffic/popular/referrers)
-
-          # パス別ビュー
-          PATHS=$(gh api repos/${{ github.repository }}/traffic/popular/paths)
-
-          # JSON を保存
           mkdir -p traffic-log
-          echo "$VIEWS" > traffic-log/views_${DATE}.json
-          echo "$REFS"  > traffic-log/refs_${DATE}.json
-          echo "$PATHS" > traffic-log/paths_${DATE}.json
 
-      - name: Update cumulative log
+          # CountAPI からスキャン数を取得（認証不要）
+          COUNT_JSON=$(curl -sf "https://api.countapi.xyz/get/shinonft-fax-track/qr-scan" || echo '{"value":0}')
+          TOTAL=$(echo "$COUNT_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('value', 0))" 2>/dev/null || echo 0)
+
+          # 日次スナップショットを保存
+          echo "{\"date\":\"${DATE}\",\"total\":${TOTAL}}" > traffic-log/snapshot_${DATE}.json
+
+          echo "Total scans: ${TOTAL}"
+
+      - name: Update cumulative summary
         run: |
-          DATE=$(date -u +%Y-%m-%d)
           python3 - <<'PYEOF'
-          import json, glob, os
-          from datetime import datetime, timezone
+import json, glob
+from datetime import datetime, timezone
 
-          # 全viewsファイルをマージして重複排除
-          all_days = {}
-          for f in sorted(glob.glob("traffic-log/views_*.json")):
-              try:
-                  data = json.load(open(f))
-                  for v in data.get("views", []):
-                      ts = v["timestamp"][:10]  # 日付だけ
-                      if ts not in all_days or all_days[ts]["count"] < v["count"]:
-                          all_days[ts] = {"count": v["count"], "uniques": v["uniques"]}
-              except Exception:
-                  pass
+snapshots = []
+for f in sorted(glob.glob("traffic-log/snapshot_*.json")):
+    try:
+        snapshots.append(json.load(open(f)))
+    except Exception:
+        pass
 
-          # 累積サマリー
-          total_views   = sum(v["count"]   for v in all_days.values())
-          total_uniques = sum(v["uniques"] for v in all_days.values())
+# 最新のスナップショットから差分で日次カウントを算出
+by_date = {}
+prev = 0
+for s in snapshots:
+    daily = max(0, s["total"] - prev)
+    by_date[s["date"]] = {"count": daily, "cumulative": s["total"]}
+    prev = s["total"]
 
-          summary = {
-              "updated_at": datetime.now(timezone.utc).isoformat(),
-              "total_views": total_views,
-              "total_uniques": total_uniques,
-              "by_date": {k: v for k, v in sorted(all_days.items())}
-          }
+total = snapshots[-1]["total"] if snapshots else 0
 
-          with open("traffic-log/summary.json", "w") as f:
-              json.dump(summary, f, indent=2, ensure_ascii=False)
+summary = {
+    "updated_at": datetime.now(timezone.utc).isoformat(),
+    "total_views": total,
+    "by_date": by_date
+}
 
-          print(f"Total views: {total_views}, Uniques: {total_uniques}")
-          PYEOF
+with open("traffic-log/summary.json", "w") as f:
+    json.dump(summary, f, indent=2, ensure_ascii=False)
 
-      - name: Commit traffic data
+print(f"Total scans: {total}")
+PYEOF
+
+      - name: Commit
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add traffic-log/
-          git diff --cached --quiet || git commit -m "chore: save traffic data $(date -u +%Y-%m-%d)"
+          git diff --cached --quiet || git commit -m "chore: save scan count $(date -u +%Y-%m-%d)"
           git push

@@ -21,20 +21,23 @@
     .bar { background: #3b82f6; border-radius: 4px; height: 8px; }
     .updated { font-size: 12px; color: #94a3b8; margin-top: 20px; text-align: right; }
     .no-data { text-align: center; padding: 40px; color: #94a3b8; }
+    .live { display: inline-block; width: 8px; height: 8px; background: #22c55e;
+            border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   </style>
 </head>
 <body>
-  <h1>📊 FAXキャンペーン QRコード スキャン集計</h1>
-  <p class="sub">カスハラ対策 介護事業所向けFAX — <span id="qr-url"></span></p>
+  <h1>QRコード スキャン集計</h1>
+  <p class="sub">カスハラ対策 介護事業所向けFAXキャンペーン</p>
 
   <div class="grid">
     <div class="card">
       <div class="num" id="total-views">—</div>
-      <div class="label">総スキャン数</div>
+      <div class="label"><span class="live"></span>総スキャン数（リアルタイム）</div>
     </div>
     <div class="card">
-      <div class="num" id="total-uniques">—</div>
-      <div class="label">ユニーク訪問者</div>
+      <div class="num" id="daily-avg">—</div>
+      <div class="label">1日平均スキャン</div>
     </div>
     <div class="card">
       <div class="num" id="last-count">—</div>
@@ -46,8 +49,8 @@
     <thead>
       <tr>
         <th>日付</th>
-        <th>スキャン数</th>
-        <th>ユニーク</th>
+        <th>当日スキャン</th>
+        <th>累計</th>
         <th style="width:200px">グラフ</th>
       </tr>
     </thead>
@@ -59,50 +62,59 @@
   <p class="updated" id="updated-at"></p>
 
   <script>
-    document.getElementById('qr-url').textContent =
-      window.location.origin + window.location.pathname.replace('stats.html', '');
+    // リアルタイム総数（CountAPI から直接取得）
+    fetch('https://api.countapi.xyz/get/shinonft-fax-track/qr-scan')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('total-views').textContent =
+          (data.value || 0).toLocaleString();
+      })
+      .catch(function() {
+        document.getElementById('total-views').textContent = '—';
+      });
 
+    // 日次履歴（GitHub Actions が毎日保存した summary.json）
     fetch('traffic-log/summary.json?_=' + Date.now())
-      .then(r => r.json())
-      .then(data => {
-        document.getElementById('total-views').textContent   = data.total_views.toLocaleString();
-        document.getElementById('total-uniques').textContent = data.total_uniques.toLocaleString();
-        document.getElementById('updated-at').textContent    =
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('updated-at').textContent =
           '最終更新: ' + new Date(data.updated_at).toLocaleString('ja-JP');
 
-        const days = Object.entries(data.by_date).reverse();  // 新しい日付順
-        const maxCount = Math.max(...days.map(([,v]) => v.count), 1);
+        var days = Object.entries(data.by_date || {}).reverse();
+        var maxCount = Math.max.apply(null, days.map(function(d) { return d[1].count; }).concat([1]));
 
-        // 昨日
         if (days.length > 0) {
-          document.getElementById('last-count').textContent = days[0][1].count.toLocaleString();
+          // 昨日
+          document.getElementById('last-count').textContent =
+            (days[0][1].count || 0).toLocaleString();
+          // 1日平均
+          var totalDaily = days.reduce(function(s, d) { return s + d[1].count; }, 0);
+          document.getElementById('daily-avg').textContent =
+            days.length > 0 ? Math.round(totalDaily / days.length).toLocaleString() : '—';
         }
 
-        const tbody = document.getElementById('daily-body');
+        var tbody = document.getElementById('daily-body');
         if (days.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="4" class="no-data">まだデータがありません（FAX送信後に蓄積されます）</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="4" class="no-data">FAX送信開始後、翌日 9:00 に初回集計されます</td></tr>';
           return;
         }
 
-        tbody.innerHTML = days.map(([date, v]) => `
-          <tr>
-            <td>${date}</td>
-            <td><strong>${v.count}</strong></td>
-            <td>${v.uniques}</td>
-            <td>
-              <div class="bar-wrap">
-                <div class="bar" style="width:${Math.round(v.count/maxCount*100)}%"></div>
-              </div>
-            </td>
-          </tr>
-        `).join('');
+        tbody.innerHTML = days.map(function(entry) {
+          var date = entry[0], v = entry[1];
+          var pct = Math.round(v.count / maxCount * 100);
+          return '<tr>' +
+            '<td>' + date + '</td>' +
+            '<td><strong>' + (v.count || 0).toLocaleString() + '</strong></td>' +
+            '<td>' + (v.cumulative || 0).toLocaleString() + '</td>' +
+            '<td><div class="bar-wrap"><div class="bar" style="width:' + pct + '%"></div></div></td>' +
+            '</tr>';
+        }).join('');
       })
-      .catch(() => {
+      .catch(function() {
         document.getElementById('daily-body').innerHTML =
-          '<tr><td colspan="4" class="no-data">データがまだありません。<br>FAX送信開始後、翌日 9:00 に初回集計されます。</td></tr>';
-        document.getElementById('total-views').textContent   = '0';
-        document.getElementById('total-uniques').textContent = '0';
-        document.getElementById('last-count').textContent    = '0';
+          '<tr><td colspan="4" class="no-data">日次データはFAX送信翌日から蓄積されます</td></tr>';
+        document.getElementById('last-count').textContent = '0';
+        document.getElementById('daily-avg').textContent = '0';
       });
   </script>
 </body>
